@@ -1,0 +1,277 @@
+<title>Rajvadász</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one full-height stage; canvas scaled to fit; overlay holds menu and level-up choices. */
+:root {
+  --bg: #0b0d1a;
+  --panel: #151a38;
+  --line: #2a3163;
+  --fg: #eceeff;
+  --muted: #929ccc;
+  --hero: #4fd6ff;
+  --gold: #ffd75e;
+  --foe: #ff5470;
+  --font: ui-rounded, "Trebuchet MS", system-ui, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font);
+  padding-block: 0;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; justify-content: center; overflow: hidden;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+#stage { position: relative; width: min(100%, calc(100dvh * 2 / 3)); aspect-ratio: 2 / 3; align-self: center; }
+canvas { width: 100%; height: 100%; display: block; background: var(--bg); }
+#overlay {
+  position: absolute; inset: 0; padding: 20px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  text-align: center; background: rgba(11, 13, 26, 0.84);
+}
+#overlay[hidden] { display: none; }
+h1 { margin: 0; font-size: 2.2rem; letter-spacing: 0.03em; text-wrap: balance; }
+p { margin: 0; color: var(--muted); line-height: 1.5; max-width: 28ch; }
+#choices { display: flex; flex-direction: column; gap: 10px; width: min(100%, 340px); }
+#choices[hidden] { display: none; }
+.pick {
+  font: inherit; text-align: left; color: var(--fg); background: var(--panel);
+  border: 2px solid var(--line); border-radius: 12px; padding: 12px 14px; cursor: pointer;
+}
+.pick b { display: block; color: var(--gold); font-size: 1.05rem; }
+.pick span { color: var(--muted); font-size: 0.9rem; }
+.pick:hover { border-color: var(--hero); }
+#go {
+  font: inherit; font-weight: 700; font-size: 1.1rem; background: var(--hero); color: #03202c;
+  border: 0; border-radius: 999px; padding: 14px 36px; cursor: pointer;
+}
+#go[hidden] { display: none; }
+button:focus-visible { outline: 3px solid var(--fg); outline-offset: 3px; }
+</style>
+
+<div id="stage">
+  <canvas id="c" width="480" height="720"></canvas>
+  <div id="overlay">
+    <h1 id="title">Rajvadász</h1>
+    <p id="msg">Élj túl 5 percet. Húzd az ujjadat a mozgáshoz, a hajó magától lő. Gyűjtsd a kristályokat, és fejleszd magad.</p>
+    <p id="best"></p>
+    <div id="choices" hidden></div>
+    <button id="go" type="button">Indítás</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var W = 480, H = 720, GOAL = 300;
+  var cv = document.getElementById("c"), ctx = cv.getContext("2d");
+  var overlay = document.getElementById("overlay"), titleEl = document.getElementById("title");
+  var msgEl = document.getElementById("msg"), bestEl = document.getElementById("best");
+  var choicesEl = document.getElementById("choices"), goBtn = document.getElementById("go");
+  var best = 0;
+  try { best = +localStorage.getItem("rv_best") || 0; } catch (e) {}
+  if (best) bestEl.textContent = "Legtöbb kiiktatott ellenség: " + best;
+
+  var S, running = false, paused = false, keys = {}, stick = null;
+
+  var UPGRADES = [
+    { n: "Gyors tűz", d: "A lövések 25%-kal sűrűbbek.", f: function (s) { s.rate *= 0.75; } },
+    { n: "Több lövedék", d: "Eggyel több lövés egyszerre.", f: function (s) { s.multi++; } },
+    { n: "Erősebb lövés", d: "+1 sebzés minden találatnál.", f: function (s) { s.dmg++; } },
+    { n: "Pörgő penge", d: "Egy penge kering körülötted.", f: function (s) { s.blades++; } },
+    { n: "Gyors láb", d: "15%-kal gyorsabb mozgás.", f: function (s) { s.speed *= 1.15; } },
+    { n: "Mágnes", d: "Messzebbről húzod magadhoz a kristályokat.", f: function (s) { s.magnet += 45; } },
+    { n: "Gyógyulás", d: "+2 élet, a maximum is nő eggyel.", f: function (s, p) { p.max++; p.hp = Math.min(p.max, p.hp + 2); } }
+  ];
+
+  function reset() {
+    S = { p: { x: 0, y: 0, r: 12, hp: 5, max: 5, inv: 0, face: 0 },
+          foes: [], shots: [], gems: [], parts: [],
+          t: 0, kills: 0, xp: 0, lvl: 1, need: 6, cd: 0, spawn: 0, ang: 0,
+          st: { rate: 28, multi: 1, dmg: 1, blades: 0, speed: 2.4, magnet: 50 } };
+  }
+  reset();
+
+  function start() { reset(); running = true; paused = false; overlay.hidden = true; }
+  function finish(won) {
+    running = false;
+    if (S.kills > best) { best = S.kills; try { localStorage.setItem("rv_best", best); } catch (e) {} }
+    titleEl.textContent = won ? "Túlélted!" : "Elbuktál";
+    msgEl.textContent = (won ? "Kibírtál 5 percet. " : "Kibírtál " + fmt(S.t) + " percet. ") + "Kiiktatott ellenség: " + S.kills + ", szint: " + S.lvl + ".";
+    bestEl.textContent = "Legtöbb kiiktatott ellenség: " + best;
+    choicesEl.hidden = true; goBtn.hidden = false; goBtn.textContent = "Újra";
+    overlay.hidden = false;
+  }
+  function fmt(t) { var s = Math.floor(t); return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2); }
+  goBtn.addEventListener("click", start);
+
+  function levelUp() {
+    paused = true;
+    var pool = UPGRADES.slice().sort(function () { return Math.random() - 0.5; }).slice(0, 3);
+    choicesEl.innerHTML = "";
+    pool.forEach(function (u) {
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "pick";
+      b.innerHTML = "<b></b><span></span>";
+      b.firstChild.textContent = u.n; b.lastChild.textContent = u.d;
+      b.addEventListener("click", function () { u.f(S.st, S.p); overlay.hidden = true; paused = false; });
+      choicesEl.appendChild(b);
+    });
+    titleEl.textContent = "Szintlépés: " + S.lvl + ". szint";
+    msgEl.textContent = "Válassz egy fejlesztést.";
+    bestEl.textContent = "";
+    goBtn.hidden = true; choicesEl.hidden = false; overlay.hidden = false;
+  }
+
+  addEventListener("keydown", function (e) { keys[e.key.toLowerCase()] = true; });
+  addEventListener("keyup", function (e) { keys[e.key.toLowerCase()] = false; });
+  function pt(e) { var r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * W / r.width, y: (e.clientY - r.top) * H / r.height }; }
+  cv.addEventListener("pointerdown", function (e) { var q = pt(e); stick = { ox: q.x, oy: q.y, x: q.x, y: q.y }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointermove", function (e) { if (stick) { var q = pt(e); stick.x = q.x; stick.y = q.y; } });
+  function rel() { stick = null; }
+  cv.addEventListener("pointerup", rel); cv.addEventListener("pointercancel", rel);
+
+  function boom(x, y, c, n) {
+    for (var i = 0; i < n; i++) { var a = Math.random() * 6.283, v = 1 + Math.random() * 3; S.parts.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 22, c: c }); }
+  }
+  function kill(f) {
+    S.kills++; boom(f.x, f.y, f.c, 8);
+    S.gems.push({ x: f.x, y: f.y, v: f.big ? 3 : 1 });
+  }
+
+  function update() {
+    var p = S.p, st = S.st;
+    S.t += 1 / 60;
+    if (S.t >= GOAL) { finish(true); return; }
+
+    var dx = 0, dy = 0;
+    if (keys.arrowleft || keys.a) dx--; if (keys.arrowright || keys.d) dx++;
+    if (keys.arrowup || keys.w) dy--; if (keys.arrowdown || keys.s) dy++;
+    if (stick) {
+      var sx = stick.x - stick.ox, sy = stick.y - stick.oy, m = Math.min(1, Math.hypot(sx, sy) / 50);
+      if (m > 0.08) { var a = Math.atan2(sy, sx); dx = Math.cos(a) * m; dy = Math.sin(a) * m; }
+    }
+    var l = Math.hypot(dx, dy); if (l > 1) { dx /= l; dy /= l; }
+    p.x += dx * st.speed; p.y += dy * st.speed;
+    if (l > 0.1) p.face = Math.atan2(dy, dx);
+    if (p.inv > 0) p.inv--;
+
+    // spawning gets denser and tougher with time
+    if (--S.spawn <= 0) {
+      var n = 1 + Math.floor(S.t / 45);
+      for (var i = 0; i < n; i++) {
+        var ang = Math.random() * 6.283, d = 380, r = Math.random();
+        var f = { x: p.x + Math.cos(ang) * d, y: p.y + Math.sin(ang) * d, bc: 0 };
+        if (S.t > 70 && r < 0.12) { f.r = 20; f.hp = 6 + S.t / 18; f.v = 0.7; f.c = "#b05cff"; f.big = true; }
+        else if (S.t > 25 && r < 0.35) { f.r = 8; f.hp = 1; f.v = 1.9; f.c = "#ffb04a"; }
+        else { f.r = 12; f.hp = 1 + S.t / 50; f.v = 1.1; f.c = "#ff5470"; }
+        S.foes.push(f);
+      }
+      S.spawn = Math.max(10, 38 - S.t / 9);
+    }
+
+    // auto-fire at the nearest foe
+    if (--S.cd <= 0) {
+      var best2 = null, bd = 340 * 340;
+      S.foes.forEach(function (f) { var d2 = (f.x - p.x) * (f.x - p.x) + (f.y - p.y) * (f.y - p.y); if (d2 < bd) { bd = d2; best2 = f; } });
+      if (best2) {
+        var base = Math.atan2(best2.y - p.y, best2.x - p.x);
+        for (var k = 0; k < st.multi; k++) {
+          var a2 = base + (k - (st.multi - 1) / 2) * 0.16;
+          S.shots.push({ x: p.x, y: p.y, vx: Math.cos(a2) * 8, vy: Math.sin(a2) * 8, life: 60 });
+        }
+        S.cd = st.rate;
+      } else S.cd = 6;
+    }
+    S.shots.forEach(function (b) { b.x += b.vx; b.y += b.vy; b.life--; });
+
+    S.ang += 0.07;
+    var blades = [];
+    for (var j = 0; j < st.blades; j++) {
+      var ba = S.ang + j * 6.283 / st.blades;
+      blades.push({ x: p.x + Math.cos(ba) * 62, y: p.y + Math.sin(ba) * 62 });
+    }
+    S.blades = blades;
+
+    S.foes = S.foes.filter(function (f) {
+      var a3 = Math.atan2(p.y - f.y, p.x - f.x);
+      f.x += Math.cos(a3) * f.v; f.y += Math.sin(a3) * f.v;
+      if (f.bc > 0) f.bc--;
+      for (var i = 0; i < S.shots.length; i++) {
+        var b = S.shots[i];
+        if (b.life > 0 && Math.hypot(b.x - f.x, b.y - f.y) < f.r + 4) { b.life = 0; f.hp -= st.dmg; f.x -= Math.cos(a3) * 4; f.y -= Math.sin(a3) * 4; break; }
+      }
+      if (f.bc <= 0) for (var q = 0; q < blades.length; q++) {
+        if (Math.hypot(blades[q].x - f.x, blades[q].y - f.y) < f.r + 10) { f.hp -= st.dmg; f.bc = 14; break; }
+      }
+      if (f.hp <= 0) { kill(f); return false; }
+      if (p.inv <= 0 && Math.hypot(p.x - f.x, p.y - f.y) < f.r + p.r) {
+        p.hp--; p.inv = 50; boom(p.x, p.y, "#4fd6ff", 10);
+        if (navigator.vibrate) try { navigator.vibrate(40); } catch (e) {}
+        if (p.hp <= 0) finish(false);
+      }
+      return true;
+    });
+    S.shots = S.shots.filter(function (b) { return b.life > 0; });
+
+    S.gems = S.gems.filter(function (g) {
+      var d = Math.hypot(p.x - g.x, p.y - g.y);
+      if (d < st.magnet) { g.x += (p.x - g.x) / d * 6; g.y += (p.y - g.y) / d * 6; }
+      if (d < 14) { S.xp += g.v; return false; }
+      return true;
+    });
+    if (S.xp >= S.need && running) {
+      S.xp -= S.need; S.lvl++; S.need = Math.round(S.need * 1.35 + 2);
+      levelUp();
+    }
+    S.parts.forEach(function (q) { q.x += q.vx; q.y += q.vy; q.t--; });
+    S.parts = S.parts.filter(function (q) { return q.t > 0; });
+  }
+
+  function draw() {
+    var p = S.p, ox = W / 2 - p.x, oy = H / 2 - p.y;
+    ctx.fillStyle = "#0b0d1a"; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "#171c3a"; ctx.lineWidth = 1; ctx.beginPath();
+    for (var gx = ((ox % 60) + 60) % 60; gx < W; gx += 60) { ctx.moveTo(gx, 0); ctx.lineTo(gx, H); }
+    for (var gy = ((oy % 60) + 60) % 60; gy < H; gy += 60) { ctx.moveTo(0, gy); ctx.lineTo(W, gy); }
+    ctx.stroke();
+
+    S.gems.forEach(function (g) { ctx.fillStyle = g.v > 1 ? "#ff8fd8" : "#6df0b0"; var x = g.x + ox, y = g.y + oy; ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 4, y); ctx.lineTo(x, y + 5); ctx.lineTo(x - 4, y); ctx.closePath(); ctx.fill(); });
+    S.foes.forEach(function (f) { ctx.fillStyle = f.bc > 0 ? "#ffffff" : f.c; ctx.beginPath(); ctx.arc(f.x + ox, f.y + oy, f.r, 0, 6.283); ctx.fill(); });
+    ctx.fillStyle = "#ffd75e"; S.shots.forEach(function (b) { ctx.beginPath(); ctx.arc(b.x + ox, b.y + oy, 4, 0, 6.283); ctx.fill(); });
+    ctx.fillStyle = "#cfe9ff"; (S.blades || []).forEach(function (b) { ctx.beginPath(); ctx.arc(b.x + ox, b.y + oy, 9, 0, 6.283); ctx.fill(); });
+    S.parts.forEach(function (q) { ctx.globalAlpha = q.t / 22; ctx.fillStyle = q.c; ctx.fillRect(q.x + ox, q.y + oy, 4, 4); });
+    ctx.globalAlpha = 1;
+
+    if (Math.floor(p.inv / 5) % 2 === 0) {
+      ctx.save(); ctx.translate(W / 2, H / 2); ctx.rotate(p.face);
+      ctx.fillStyle = "#4fd6ff"; ctx.beginPath(); ctx.moveTo(16, 0); ctx.lineTo(-11, 11); ctx.lineTo(-5, 0); ctx.lineTo(-11, -11); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+    if (stick && running) {
+      var vx = Math.max(-50, Math.min(50, stick.x - stick.ox)), vy = Math.max(-50, Math.min(50, stick.y - stick.oy));
+      if (Math.hypot(stick.x - stick.ox, stick.y - stick.oy) > 50) { var a = Math.atan2(stick.y - stick.oy, stick.x - stick.ox); vx = Math.cos(a) * 50; vy = Math.sin(a) * 50; }
+      ctx.strokeStyle = "rgba(236,238,255,0.35)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(stick.ox, stick.oy, 50, 0, 6.283); ctx.stroke();
+      ctx.fillStyle = "rgba(236,238,255,0.45)"; ctx.beginPath(); ctx.arc(stick.ox + vx, stick.oy + vy, 18, 0, 6.283); ctx.fill();
+    }
+
+    // HUD: xp bar on top, hearts, timer
+    ctx.fillStyle = "#1a2046"; ctx.fillRect(0, 0, W, 10);
+    ctx.fillStyle = "#6df0b0"; ctx.fillRect(0, 0, W * Math.min(1, S.xp / S.need), 10);
+    ctx.font = "bold 20px ui-rounded, system-ui, sans-serif"; ctx.fillStyle = "#eceeff";
+    ctx.textAlign = "center"; ctx.fillText(fmt(S.t) + " / 5:00", W / 2, 38);
+    ctx.textAlign = "left"; ctx.fillText(S.lvl + ". szint", 12, 38);
+    ctx.textAlign = "right"; ctx.fillText("Ölés: " + S.kills, W - 12, 38);
+    for (var h = 0; h < p.max; h++) { ctx.fillStyle = h < p.hp ? "#ff5470" : "#3a2440"; ctx.fillRect(12 + h * 18, 50, 14, 14); }
+  }
+
+  var last = 0, acc = 0;
+  function frame(t) {
+    acc += Math.min(100, t - last); last = t;
+    while (acc >= 1000 / 60) { if (running && !paused) update(); acc -= 1000 / 60; }
+    draw();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(function (t) { last = t; frame(t); });
+})();
+</script>
