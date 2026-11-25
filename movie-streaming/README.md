@@ -107,3 +107,7 @@ src/
 - **Nocturne Test Reel** and the **Night Shift** series are original clips generated with ffmpeg. They are the only playable titles out of the box: the reel has an MP4 source, an HLS source and English subtitles, and the series exercises next-episode.
 - The Blender open movies (CC BY) and the classic films (generally public domain in the US, but status varies by country) are listed **without video sources**. Add sources you have verified in the admin panel.
 - Posters and backdrops are generated SVG artwork, not studio images. IMDb ratings are approximate demo values: verify them before going live.
+
+## Docker
+
+`docker compose up -d --build` builds and starts the app and PostgreSQL. Migrations run on every start, and the demo catalogue is seeded only on the first start (empty database). For a Hungarian step-by-step guide, see [TELEPITES.md](TELEPITES.md).

@@ -1,0 +1,50 @@
+# Start everything with:  docker compose up -d --build
+# Then open http://localhost:3000
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nocturne
+      POSTGRES_PASSWORD: nocturne
+      POSTGRES_DB: nocturne
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nocturne -d nocturne"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://nocturne:nocturne@db:5432/nocturne?schema=public
+      APP_URL: http://localhost:3000
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.com}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMe123!}
+      # Optional — uncomment and fill to use Cloudinary or send real reset emails:
+      # CLOUDINARY_CLOUD_NAME: ""
+      # CLOUDINARY_API_KEY: ""
+      # CLOUDINARY_API_SECRET: ""
+      # SMTP_HOST: ""
+      # SMTP_PORT: "587"
+      # SMTP_USER: ""
+      # SMTP_PASS: ""
+      # MAIL_FROM: "Nocturne <no-reply@example.com>"
+    volumes:
+      - app-data:/app/data
+      - uploads:/app/public/uploads
+      - demo-media:/app/public/demo
+
+volumes:
+  db-data:
+  app-data:
+  uploads:
+  demo-media:
