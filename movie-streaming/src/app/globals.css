@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #090909;
+  --color-ink-2: #141414;
+  --color-ink-3: #1d1d21;
+  --color-line: #26262c;
+  --color-mute: #9a98a6;
+  --color-soft: #c9c7d3;
+  --color-violet: #8b5cff;
+  --color-violet-2: #a78bff;
+  --color-violet-deep: #5b2bd9;
+  --color-gold: #f5c451;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display), var(--font-inter), ui-sans-serif, sans-serif;
+  --font-serif: var(--font-serif), Georgia, serif;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  html { color-scheme: dark; background: var(--color-ink); scroll-padding-top: 80px; }
+  body { background: var(--color-ink); color: #fff; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; overflow-x: clip; }
+  ::selection { background: color-mix(in oklab, var(--color-violet) 55%, transparent); }
+  :focus-visible { outline: 2px solid var(--color-violet-2); outline-offset: 3px; border-radius: 6px; }
+  input, select, textarea { font-size: 16px; }
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+@utility text-balance { text-wrap: balance; }
+
+@utility btn { @apply inline-flex items-center justify-center gap-2 rounded-full px-5 h-11 text-[15px] font-semibold transition duration-200 select-none disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap; }
+@utility btn-primary { @apply btn bg-white text-ink hover:bg-violet-2 hover:text-white; }
+@utility btn-violet { @apply btn bg-violet text-white hover:bg-violet-2 shadow-[0_10px_30px_-10px_rgb(139_92_255/0.7)]; }
+@utility btn-ghost { @apply btn bg-white/10 text-white backdrop-blur-md hover:bg-white/20 ring-1 ring-inset ring-white/15; }
+@utility btn-quiet { @apply btn bg-transparent text-soft hover:text-white hover:bg-white/5 px-3; }
+@utility btn-danger { @apply btn bg-red-500/15 text-red-300 hover:bg-red-500/25 ring-1 ring-inset ring-red-500/30; }
+@utility field { @apply w-full rounded-xl bg-ink-3 border border-line px-4 h-12 text-white placeholder:text-mute/70 outline-none transition focus:border-violet focus:ring-4 focus:ring-violet/20; }
+textarea.field { @apply h-auto py-3 leading-relaxed; }
+@utility label { @apply block text-[13px] font-medium text-soft mb-1.5; }
+@utility chip { @apply inline-flex items-center h-9 px-4 rounded-full text-sm font-medium border border-line bg-ink-2 text-soft hover:text-white hover:border-white/25 transition; }
+@utility chip-on { @apply bg-white text-ink border-white hover:text-ink; }
+@utility eyebrow { @apply text-[13px] font-semibold text-violet-2; }
+@utility card { @apply rounded-2xl bg-ink-2 border border-line; }
+
+
+.grain::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .06; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+}

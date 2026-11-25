@@ -1,0 +1,289 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum CreditRole {
+  ACTOR
+  DIRECTOR
+  WRITER
+  PRODUCER
+  COMPOSER
+}
+
+/// Which provider module (src/lib/providers) resolves a video source.
+enum VideoProvider {
+  VIDEA
+  DIRECT
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String   @map("password_hash")
+  role         Role     @default(USER)
+  avatarUrl    String?  @map("avatar_url")
+  disabled     Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  history     WatchHistory[]
+  watchlist   WatchlistItem[]
+  ratings     Rating[]
+  resetTokens PasswordResetToken[]
+
+  @@index([createdAt])
+  @@map("users")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique @map("token_hash")
+  userId    String    @map("user_id")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model Genre {
+  id     String        @id @default(cuid())
+  name   String        @unique
+  slug   String        @unique
+  movies MovieGenre[]
+  series SeriesGenre[]
+
+  @@map("genres")
+}
+
+model Movie {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  title       String
+  tagline     String?
+  description String
+  releaseDate DateTime? @map("release_date")
+  year        Int
+  runtime     Int? /// minutes
+  imdbRating  Decimal?  @map("imdb_rating") @db.Decimal(3, 1)
+  ageRating   String?   @map("age_rating")
+  posterUrl   String?   @map("poster_url")
+  backdropUrl String?   @map("backdrop_url")
+  featured    Boolean   @default(false)
+  published   Boolean   @default(true)
+  views       Int       @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  genres    MovieGenre[]
+  cast      MovieCast[]
+  sources   VideoSource[]
+  history   WatchHistory[]
+  watchlist WatchlistItem[]
+  ratings   Rating[]
+
+  @@index([published, createdAt])
+  @@index([published, views])
+  @@index([published, imdbRating])
+  @@index([year])
+  @@index([featured])
+  @@map("movies")
+}
+
+model MovieGenre {
+  movieId String @map("movie_id")
+  genreId String @map("genre_id")
+  movie   Movie  @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  genre   Genre  @relation(fields: [genreId], references: [id], onDelete: Cascade)
+
+  @@id([movieId, genreId])
+  @@index([genreId])
+  @@map("movie_genres")
+}
+
+model Actor {
+  id       String      @id @default(cuid())
+  name     String      @unique
+  photoUrl String?     @map("photo_url")
+  credits  MovieCast[]
+
+  @@map("actors")
+}
+
+model MovieCast {
+  id        String     @id @default(cuid())
+  movieId   String     @map("movie_id")
+  actorId   String     @map("actor_id")
+  role      CreditRole @default(ACTOR)
+  character String?
+  order     Int        @default(0)
+  movie     Movie      @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  actor     Actor      @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@unique([movieId, actorId, role])
+  @@index([actorId])
+  @@map("movie_cast")
+}
+
+model VideoSource {
+  id        String        @id @default(cuid())
+  provider  VideoProvider
+  /// Provider-specific reference: a Videa embed URL, or a direct MP4/HLS URL.
+  ref       String
+  label     String        @default("Default")
+  quality   String?
+  language  String?
+  isPrimary Boolean       @default(false) @map("is_primary")
+  movieId   String?       @map("movie_id")
+  episodeId String?       @map("episode_id")
+  createdAt DateTime      @default(now()) @map("created_at")
+  movie     Movie?        @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  episode   Episode?      @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  subtitles Subtitle[]
+
+  @@index([movieId])
+  @@index([episodeId])
+  @@map("video_sources")
+}
+
+model Subtitle {
+  id       String      @id @default(cuid())
+  sourceId String      @map("source_id")
+  language String /// BCP-47 code, e.g. "hu", "en"
+  label    String
+  url      String /// WebVTT file
+  source   VideoSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@map("subtitles")
+}
+
+model Series {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  description String
+  startYear   Int      @map("start_year")
+  endYear     Int?     @map("end_year")
+  imdbRating  Decimal? @map("imdb_rating") @db.Decimal(3, 1)
+  posterUrl   String?  @map("poster_url")
+  backdropUrl String?  @map("backdrop_url")
+  featured    Boolean  @default(false)
+  published   Boolean  @default(true)
+  views       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  genres    SeriesGenre[]
+  seasons   Season[]
+  watchlist WatchlistItem[]
+
+  @@index([published, createdAt])
+  @@map("series")
+}
+
+model SeriesGenre {
+  seriesId String @map("series_id")
+  genreId  String @map("genre_id")
+  series   Series @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  genre    Genre  @relation(fields: [genreId], references: [id], onDelete: Cascade)
+
+  @@id([seriesId, genreId])
+  @@index([genreId])
+  @@map("series_genres")
+}
+
+model Season {
+  id       String    @id @default(cuid())
+  seriesId String    @map("series_id")
+  number   Int
+  title    String?
+  series   Series    @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+  episodes Episode[]
+
+  @@unique([seriesId, number])
+  @@map("seasons")
+}
+
+model Episode {
+  id          String         @id @default(cuid())
+  seasonId    String         @map("season_id")
+  number      Int
+  title       String
+  description String?
+  runtime     Int?
+  stillUrl    String?        @map("still_url")
+  airDate     DateTime?      @map("air_date")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  season      Season         @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  sources     VideoSource[]
+  history     WatchHistory[]
+
+  @@unique([seasonId, number])
+  @@map("episodes")
+}
+
+model WatchHistory {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  movieId     String?  @map("movie_id")
+  episodeId   String?  @map("episode_id")
+  positionSec Int      @default(0) @map("position_sec")
+  durationSec Int      @default(0) @map("duration_sec")
+  completed   Boolean  @default(false)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movie       Movie?   @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  episode     Episode? @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, movieId])
+  @@unique([userId, episodeId])
+  @@index([userId, updatedAt])
+  @@index([updatedAt])
+  @@map("watch_history")
+}
+
+model WatchlistItem {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  movieId   String?  @map("movie_id")
+  seriesId  String?  @map("series_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movie     Movie?   @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  series    Series?  @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, movieId])
+  @@unique([userId, seriesId])
+  @@index([userId, createdAt])
+  @@map("watchlist")
+}
+
+model Rating {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  movieId   String   @map("movie_id")
+  value     Int /// 1–10
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  movie     Movie    @relation(fields: [movieId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, movieId])
+  @@index([movieId])
+  @@map("ratings")
+}
